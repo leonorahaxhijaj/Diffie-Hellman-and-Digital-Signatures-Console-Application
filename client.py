@@ -49,3 +49,62 @@ def start_client():
     except:
         print("Signature invalid!")
         return
+    
+    while True:
+        msg = input("Enter message to send: ")
+        if msg.lower() == 'exit': break
+        msg_hash = hashlib.sha256(msg.encode()).hexdigest().encode()
+        iv = os.urandom(16)
+        cipher = Cipher(algorithms.AES(aes_key), modes.CFB(iv))
+        encryptor = cipher.encryptor()
+        send_secure(client_socket, iv + encryptor.update(msg_hash + msg.encode()) + encryptor.finalize())
+        print("Message sent.")
+
+        print("Waiting for server...")
+        data = recv_secure(client_socket)
+        sig = recv_secure(client_socket)
+
+        if not data:
+            break
+
+        iv, enc_msg = data[:16], data[16:]
+
+        decryptor = Cipher(
+            algorithms.AES(aes_key),
+            modes.CFB(iv)
+        ).decryptor()
+
+        dec_data = decryptor.update(enc_msg) + decryptor.finalize()
+
+        received_hash = dec_data[:64]
+        message = dec_data[64:]
+
+        new_hash = hashlib.sha256(message).hexdigest().encode()
+
+        if received_hash == new_hash:
+            print("Integrity OK")
+        else:
+            print("Message modified!")
+            continue
+
+        try:
+            server_public_rsa.verify(
+                sig,
+                message,
+                padding.PSS(
+                    padding.MGF1(hashes.SHA256()),
+                    padding.PSS.MAX_LENGTH
+                ),
+                hashes.SHA256()
+            )
+
+            print("Signature valid")
+            print(f"Server: {message.decode()}")
+
+        except:
+            print("Invalid signature!")
+
+    client_socket.close()
+
+if __name__ == "__main__":
+    start_client()
